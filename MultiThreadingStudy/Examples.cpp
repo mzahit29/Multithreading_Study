@@ -10,6 +10,8 @@ queue<int> q;
 
 mutex mq;
 
+condition_variable cond;
+
 void produce(queue<int>& q)
 {
 	// Produce 100 numbers and push to queue.
@@ -40,6 +42,44 @@ void consume(queue<int>& q)
 	}
 }
 
+
+void produce_with_condition_var(queue<int>& q)
+{
+	// Produce 100 numbers and push to queue.
+	for (int i = 0; i < 100; ++i)
+	{
+		this_thread::sleep_for(chrono::milliseconds(10));
+		unique_lock<mutex> ul(mq);  // defer_lock is not used therefore mq is locked on construction
+		q.push(i);
+		ul.unlock();
+		cond.notify_one();  // Notify one thread waiting on mq, that queue is free to be used.
+
+		cout << "[" << this_thread::get_id() << "] " << "Pushed " << i << " to queue" << endl;
+	}
+}
+
+void consume_with_condition_var(queue<int>& q)
+{
+	int data{};
+
+	// Consume when a number is placed in queue
+	while (data != 99)
+	{
+		this_thread::sleep_for(chrono::milliseconds(50));
+		unique_lock<mutex> ul(mq);
+		// If notified wake up, check predicate and lock ul. Then continue process.
+		// If wakes up without being notified (superious wake up), check the predicate lambda func
+		// if it is true, lock and continue process
+		// else sleep again until notified.
+		cond.wait(ul, [&q]() { return !q.empty(); });
+		data = q.front();
+		q.pop();
+		ul.unlock();
+
+		cout << "[" << this_thread::get_id() << "] " << "Pulled " << data << " from queue" << endl;
+	}
+}
+
 // One thread will push values to queue and the other will read from the queue.
 // Consumer thread needs to be notified by the producer thread, o.w. consumer
 // will have to keep polling whether the queue has something. This is called busy
@@ -48,6 +88,15 @@ void Examples::producer_consumer_problem_with_busy_waiting()
 {
 	thread t1{ produce, std::ref(q) };
 	thread t2{ consume, std::ref(q) };
+
+	t1.join();
+	t2.join();
+}
+
+void Examples::producer_consumer_problem_with_conditional_variable()
+{
+	thread t1{ produce_with_condition_var, std::ref(q) };
+	thread t2{ consume_with_condition_var, std::ref(q) };
 
 	t1.join();
 	t2.join();
